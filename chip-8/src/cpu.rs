@@ -1,6 +1,8 @@
-use std::io::Read;
+use std::io::{Cursor, Read};
 
 use rand::Rng;
+
+use crate::display::{DEFAULT_FONT_START_ADDRESS, DEFAULT_FONTS, Display};
 
 #[derive(Debug)]
 pub struct Cpu {
@@ -13,31 +15,11 @@ pub struct Cpu {
     delay_timer: u8,
     sound_timer: u8,
     keypad: [u8; 16],
-    video: [u32; 64 * 32],
+    display: Display,
     rng: rand::prelude::ThreadRng,
 }
 
 const START_ADDRESS: u16 = 0x200;
-const DEFAULT_FONT_START_ADDRESS: u16 = 0x50;
-
-const DEFAULT_FONTS: [u8; 80] = [
-    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
-    0x20, 0x60, 0x20, 0x20, 0x70, // 1
-    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
-    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
-    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
-    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
-    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
-    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
-    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
-    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
-    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
-    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
-    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
-    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
-    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
-];
 
 impl Default for Cpu {
     fn default() -> Self {
@@ -51,10 +33,10 @@ impl Default for Cpu {
             delay_timer: 0,
             sound_timer: 0,
             keypad: [0; 16],
-            video: [0; 64 * 32],
+            display: Display::new(),
             rng: rand::thread_rng(),
         };
-        cpu.memory[(DEFAULT_FONT_START_ADDRESS as usize)..80].copy_from_slice(&DEFAULT_FONTS);
+        cpu.memory[(DEFAULT_FONT_START_ADDRESS as usize)..(0x50 + 80)].copy_from_slice(&DEFAULT_FONTS);
         cpu
     }
 }
@@ -68,13 +50,13 @@ impl Cpu {
 
         self.program_counter += 2;
 
-        let x = self.v[i_2 as usize];
-        let y = self.v[i_3 as usize];
+        let x = i_2 as u8;
+        let y = i_3 as u8;
         let nn = (opcode & 0x00FF) as u8;
 
         match (i_1, i_2, i_3, i_4) {
             // Clear screen
-            (0x0, 0x0, 0xE, 0x0) => self.video = [0; 64 * 32],
+            (0x0, 0x0, 0xE, 0x0) => self.display.clear_screen(),
             // Ret
             (0x0, 0x0, 0xE, 0xE) => {
                 self.stack_pointer -= 1;
@@ -143,8 +125,14 @@ impl Cpu {
             (0xB, _, _, _) => self.program_counter = (opcode & 0x0FFF) + self.v[0] as u16,
             // Set Vx to random number with mask nn
             (0xC, _, _, _) => self.v[x as usize] = self.rng.gen_range(0x0..0xFF) & nn,
-            // ToDo: draw sprite at position Vx, Vy with N bytes starting at address I, Set VF to if changes
-            (0xD, _, _, _) => {}
+            (0xD, _, _, _) => {
+                let n = opcode & 0x000F;
+                let sprite_collision = self.display.draw(self.v[x as usize] as usize,
+                                                         self.v[y as usize] as usize,
+                                                         &self.memory[self.i as usize..(self.i + n) as usize]);
+
+                self.v[0xF] = if sprite_collision { 1 } else { 0 };
+            }
             // Skip if key Vx is pressed
             (0xE, _, 0x9, 0xE) => self.program_counter += if self.keypad[x as usize] == 1 { 2 } else { 0 },
             // Skip if key Vx is not pressed
@@ -194,9 +182,7 @@ impl Cpu {
         }
     }
 
-    pub fn new(file: &std::path::Path) -> std::io::Result<Box<Cpu>> {
-        let mut file = std::fs::File::open(file)?;
-
+    pub fn new<T: AsRef<[u8]>>(mut file: Cursor<T>) -> std::io::Result<Box<Cpu>> {
         let mut cpu = Box::new(Cpu {
             ..Default::default()
         });
@@ -212,7 +198,48 @@ impl Cpu {
         let instruction = (self.memory[self.program_counter as usize] as u16) << 8
             | (self.memory[(self.program_counter + 1) as usize] as u16);
 
-        self.program_counter += 2;
         self.execute_opcode(instruction);
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use crate::cpu::{Cpu, START_ADDRESS};
+
+    #[test]
+    fn default_initialized() -> std::io::Result<()> {
+        let data = [0; 0x200];
+        let cpu = Cpu::new(Cursor::new(data))?;
+        assert_eq!(&cpu.memory[0x200..0x400], &[0; 0x200]);
+        assert_eq!(&cpu.v, &[0; 16]);
+        assert_eq!(&cpu.keypad, &[0; 16]);
+        assert_eq!(&cpu.stack, &[0; 24]);
+        assert_eq!(&cpu.display.memory, &[0; (64 * 32)]);
+
+        assert_eq!(cpu.sound_timer, 0);
+        assert_eq!(cpu.delay_timer, 0);
+        assert_eq!(cpu.i, 0);
+        assert_eq!(cpu.stack_pointer, 0);
+        assert_eq!(cpu.program_counter, START_ADDRESS);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_store_instructions() -> std::io::Result<()> {
+        let data = [
+            0x60, 0xAA,
+            0x80, 0x10
+        ];
+        let mut cpu = Cpu::new(Cursor::new(data))?;
+        cpu.next();
+        assert_eq!(cpu.v[0], 0xAA);
+        cpu.next();
+        assert_eq!(cpu.v[0], 0x00);
+
+        Ok(())
     }
 }
