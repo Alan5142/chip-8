@@ -16,18 +16,17 @@ pub const DEFAULT_FONTS: [u8; 80] = [
     0xF0, 0x80, 0x80, 0x80, 0xF0, // C
     0xE0, 0x90, 0x90, 0x90, 0xE0, // D
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
-const WIDTH: usize = 64;
-const HEIGHT: usize = 32;
+pub const WIDTH: usize = 64;
+pub const HEIGHT: usize = 32;
 
-#[derive(Debug)]
 pub struct Display {
-    pub memory: [u8; WIDTH * HEIGHT]
+    memory: [u8; WIDTH * HEIGHT],
 }
 
-#[derive(PartialEq, PartialOrd)]
+#[derive(PartialEq, PartialOrd, Debug)]
 pub enum Pixel {
     Off = 0,
     On = 1,
@@ -35,14 +34,18 @@ pub enum Pixel {
 
 impl From<u8> for Pixel {
     fn from(v: u8) -> Self {
-        if v == 0 { Pixel::Off } else { Pixel::On }
+        if v == 0 {
+            Pixel::Off
+        } else {
+            Pixel::On
+        }
     }
 }
 
 impl Display {
     pub fn new() -> Display {
         Display {
-            memory: [0; WIDTH * HEIGHT]
+            memory: [0; WIDTH * HEIGHT],
         }
     }
 
@@ -64,23 +67,51 @@ impl Display {
 
     pub fn draw(&mut self, x: usize, y: usize, sprite: &[u8]) -> bool {
         let height = sprite.len();
-        let mut sprite_collision = false;
-
-        for i in 0..height {
-            let pixel = sprite[i];
-            for j in 0..8 {
-                if pixel & (0x80 >> i) != 0 {
-                    let pos_x = (x + j) % WIDTH;
-                    let pos_y = (y + i) % HEIGHT;
-                    let old_value = self.get_pixel(pos_x, pos_y) as u8;
-                    if old_value == 1 {
-                        sprite_collision = true;
+        let mut collision = false;
+        for row in 0..height {
+            let pixel = sprite[row];
+            for col in 0..8 {
+                let bit = pixel & (0b10000000 >> col);
+                if bit != 0 {
+                    if x + col > WIDTH {
+                        continue;
                     }
-                    self.set_pixel(pos_x, pos_y, (pixel ^ old_value).into());
+
+                    let previous_pixel = self.get_pixel(x + col, y + row);
+
+                    if previous_pixel == Pixel::On {
+                        collision = true;
+                    }
+                    self.set_pixel(x + col, y + row, Pixel::from(previous_pixel as u8 ^ 1));
                 }
             }
         }
-        sprite_collision
+
+        /*
+        let rows = sprite.len();
+        let mut collision = false;
+        for j in 0..rows {
+            let row = sprite[j];
+            for i in 0..8 {
+                let new_value = row >> (7 - i) & 0x01;
+                if new_value == 1 {
+                    let xi = (x + i) % WIDTH;
+                    let yj = (y + j) % HEIGHT;
+                    let old_value = self.get_pixel(xi, yj) as u8;
+                    if old_value == 1 {
+                        collision = true;
+                    }
+                    self.set_pixel(xi, yj, Pixel::from(new_value ^ old_value));
+                }
+            }
+        }
+        */
+
+        collision
+    }
+
+    pub fn get_video_mem(&self) -> &[u8; WIDTH * HEIGHT] {
+        &self.memory
     }
 }
 
@@ -89,9 +120,64 @@ mod tests {
     use crate::display::{Display, Pixel};
 
     #[test]
+    fn clear() {
+        let mut display = Display::new();
+
+        display.set_pixel(1, 1, Pixel::On);
+        assert_eq!(display.is_pixel_set(1, 1), true);
+        display.clear_screen();
+
+        assert_eq!(Pixel::Off, display.get_pixel(1, 1));
+    }
+
+    #[test]
     fn set_pixel() {
         let mut display = Display::new();
 
         display.set_pixel(0, 0, Pixel::On);
+    }
+
+    #[test]
+    fn draw() {
+        let mut display = Display::new();
+
+        let sprite: [u8; 2] = [0b00110011, 0b11001010];
+
+        display.draw(0, 0, &sprite);
+
+        assert_eq!(Pixel::Off, display.get_pixel(0, 0));
+        assert_eq!(Pixel::Off, display.get_pixel(1, 0));
+        assert_eq!(Pixel::On, display.get_pixel(2, 0));
+        assert_eq!(Pixel::On, display.get_pixel(3, 0));
+        assert_eq!(Pixel::Off, display.get_pixel(4, 0));
+        assert_eq!(Pixel::Off, display.get_pixel(5, 0));
+        assert_eq!(Pixel::On, display.get_pixel(6, 0));
+        assert_eq!(Pixel::On, display.get_pixel(7, 0));
+
+        assert_eq!(Pixel::On, display.get_pixel(0, 1));
+        assert_eq!(Pixel::On, display.get_pixel(1, 1));
+        assert_eq!(Pixel::Off, display.get_pixel(2, 1));
+        assert_eq!(Pixel::Off, display.get_pixel(3, 1));
+        assert_eq!(Pixel::On, display.get_pixel(4, 1));
+        assert_eq!(Pixel::Off, display.get_pixel(5, 1));
+        assert_eq!(Pixel::On, display.get_pixel(6, 1));
+        assert_eq!(Pixel::Off, display.get_pixel(7, 1));
+    }
+
+    #[test]
+    fn draw_detects_collisions() {
+        let mut display = Display::new();
+
+        let mut sprite: [u8; 1] = [0b00110000];
+        let mut collision = display.draw(0, 0, &sprite);
+        assert_eq!(false, collision);
+
+        sprite = [0b00000011];
+        collision = display.draw(0, 0, &sprite);
+        assert_eq!(false, collision);
+
+        sprite = [0b00000001];
+        collision = display.draw(0, 0, &sprite);
+        assert_eq!(true, collision);
     }
 }

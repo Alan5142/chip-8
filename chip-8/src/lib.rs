@@ -1,5 +1,6 @@
-pub mod display;
 pub mod cpu;
+pub mod display;
+mod keypad;
 
 #[cfg(test)]
 mod tests {
