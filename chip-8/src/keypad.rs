@@ -26,6 +26,10 @@ impl KeyPad {
     pub fn on_key_pressed(&mut self, key: u8, status: bool) {
         self.keypad[key as usize] = status;
     }
+
+    pub fn is_key_down(&self, index: usize) -> bool {
+        self.keypad[index]
+    }
 }
 
 impl Index<u8> for KeyPad {

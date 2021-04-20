@@ -72,6 +72,7 @@ impl Display {
     }
 
     pub fn draw(&mut self, x: usize, y: usize, sprite: &[u8]) -> bool {
+        /*
         let height = sprite.len();
         let mut collision = false;
         for (row, pixel) in sprite.iter().enumerate().take(height) {
@@ -91,8 +92,9 @@ impl Display {
                 }
             }
         }
+        */
 
-        /*
+
         let rows = sprite.len();
         let mut collision = false;
         for j in 0..rows {
@@ -110,7 +112,7 @@ impl Display {
                 }
             }
         }
-        */
+
 
         collision
     }

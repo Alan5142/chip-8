@@ -2,7 +2,7 @@ use std::io::Read;
 
 use rand::Rng;
 
-use crate::display::{Display, DEFAULT_FONTS};
+use crate::display::{DEFAULT_FONTS, Display};
 use crate::keypad::KeyPad;
 
 pub struct Cpu {
@@ -111,7 +111,7 @@ impl Cpu {
                 self.program_counter += if self.v[x as usize] != self.v[y as usize] {
                     2
                 } else {
-                    1
+                    0
                 }
             }
             // Store NNN in register I
@@ -122,6 +122,7 @@ impl Cpu {
             (0xC, _, _, _) => {
                 self.v[x as usize] = rand::thread_rng().gen_range(0x0..0xFF) & nn;
             }
+            // DRAW!!!
             (0xD, _, _, _) => {
                 let n = opcode & 0x000F;
                 let sprite_collision = self.display.draw(
@@ -134,14 +135,16 @@ impl Cpu {
             }
             // Skip if key Vx is pressed
             (0xE, _, 0x9, 0xE) => {
-                self.program_counter += if self.keypad[x] { 2 } else { 0 }
+                let vx = self.v[x as usize] as usize;
+                self.program_counter += if self.keypad.is_key_down(vx) { 2 } else { 0 }
             }
             // Skip if key Vx is not pressed
             (0xE, _, 0xA, 0x1) => {
-                self.program_counter += if self.keypad[x] { 0 } else { 2 }
+                let vx = self.v[x as usize] as usize;
+                self.program_counter += if self.keypad.is_key_down(vx) { 0 } else { 2 }
             }
             // Set Vx value to delay timer
-            (0xF, _, 0x0, 0x6) => self.v[x as usize] = self.delay_timer,
+            (0xF, _, 0x0, 0x7) => self.v[x as usize] = self.delay_timer,
             // Wait for keypress
             (0xF, _, 0x0, 0xA) => {
                 self.program_counter -= 2;
@@ -163,7 +166,7 @@ impl Cpu {
                 let vx = self.v[x as usize];
                 self.memory[self.i as usize] = vx / 100;
                 self.memory[self.i as usize + 1] = (vx / 10) % 10;
-                self.memory[self.i as usize + 2] = (vx / 100) % 10;
+                self.memory[self.i as usize + 2] = (vx % 100) % 10;
             }
             // Set [I, I+X]
             // Store values V0 to Vx to address I to I + X, set I = I + X +1
@@ -226,6 +229,10 @@ impl Cpu {
         if self.sound_timer > 0 {
             self.sound_timer -= 1;
         }
+    }
+
+    pub fn should_play_sound(&self) -> bool {
+        self.sound_timer > 0
     }
 
     pub fn get_display(&self) -> &Display {

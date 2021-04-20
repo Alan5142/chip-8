@@ -1,35 +1,56 @@
 extern crate gl;
 
-use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::io::Read;
 
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, Texture};
 use sdl2::video::Window;
+use serde::Deserialize;
 
 use chip_8::{cpu, display};
 use chip_8::cpu::Cpu;
 
-const FIXED_TIME: f64 = 1.0 / 10000.0;
+mod audio;
+
+#[derive(Deserialize)]
+struct ColorConfig {
+    back: [u8; 3],
+    front: [u8; 3],
+}
+
+#[derive(Deserialize)]
+struct Config {
+    color: ColorConfig,
+    executable: String,
+    cycles_per_second: i32,
+}
 
 fn main() {
-    let filename = std::env::args()
+    let config = std::env::args()
         .nth(1)
-        .expect("El primer argumento debe ser el archivo");
-    let cycles_per_frame = std::env::args()
-        .nth(2)
-        .map_or(17, |s| i32::from_str(s.as_str()).unwrap_or(17));
+        .unwrap_or("config.toml".into());
 
-    let file = std::fs::File::open(filename).expect("No se puede abrir el archivo");
+
+    let mut interpreter_config = String::new();
+    let _ = std::fs::File::open(config.as_str()).unwrap().read_to_string(&mut interpreter_config);
+
+
+    let config = toml::from_str::<Config>(interpreter_config.as_str())
+        .expect("No se puede cargar el archivo de configuración");
+
+    let file = std::fs::File::open(config.executable.as_str()).expect("No se puede abrir el archivo");
     let mut cpu = cpu::Cpu::new(file).expect("No se pudo leer la memoria del archivo");
 
     // SDL Context creation
     let sdl_context = sdl2::init().expect("Cannot initialize sdl");
     let sdl_video = sdl_context.video().expect("Cannot initialize video");
 
+    let audio_device = audio::initialize(&sdl_context).expect("No se puede cargar el audio");
+    let mut playing = false;
+
     // SDL Window
     let window = sdl_video
-        .window("CHIP-8", 800, 600)
+        .window("CHIP-8", 640, 320)
         .opengl()
         .resizable()
         .build()
@@ -55,21 +76,17 @@ fn main() {
 
     texture
         .with_lock(None, |buffer, _| {
+            for i in (0..buffer.len()).step_by(3) {
+                let color = &config.color.back;
+                buffer[i] = color[0];
+                buffer[i + 1] = color[1];
+                buffer[i + 2] = color[2];
+            }
             for data in buffer {
                 *data = 0;
             }
         })
         .expect("No se pudo copiar");
-
-    // let window = canvas.window();
-
-    let mut current_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs_f64();
-
-    let mut accumulator = 0.0;
-    let mut delta_time = 0.01;
 
     'running: loop {
         use sdl2::event::Event;
@@ -80,198 +97,186 @@ fn main() {
                 Event::Quit { .. } => {
                     break 'running;
                 }
-                // 5 6 7 8
-                // T Y U I
-                // G H J K
-                // V B N M
+                // 1 2 3 C
+                // 4 5 6 D
+                // 7 8 9 E
+                // A 0 B F
+                // Mapped to
+                // 1 2 3 4
+                // q w e r
+                // a s d f
+                // z x c v
                 Event::KeyDown {
-                    keycode: Some(Keycode::Num5),
-                    ..
-                } => cpu.set_key(0, true),
-                Event::KeyDown {
-                    keycode: Some(Keycode::Num6),
+                    keycode: Some(Keycode::Num1),
                     ..
                 } => cpu.set_key(1, true),
                 Event::KeyDown {
-                    keycode: Some(Keycode::Num7),
+                    keycode: Some(Keycode::Num2),
                     ..
                 } => cpu.set_key(2, true),
                 Event::KeyDown {
-                    keycode: Some(Keycode::Num8),
+                    keycode: Some(Keycode::Num3),
                     ..
                 } => cpu.set_key(3, true),
+                Event::KeyDown {
+                    keycode: Some(Keycode::Num4),
+                    ..
+                } => cpu.set_key(0xC, true),
 
                 Event::KeyDown {
-                    keycode: Some(Keycode::T),
+                    keycode: Some(Keycode::Q),
                     ..
-                } => cpu.set_key(4, true),
+                } => cpu.set_key(0x4, true),
                 Event::KeyDown {
-                    keycode: Some(Keycode::Y),
+                    keycode: Some(Keycode::W),
                     ..
-                } => cpu.set_key(5, true),
+                } => cpu.set_key(0x5, true),
                 Event::KeyDown {
-                    keycode: Some(Keycode::U),
+                    keycode: Some(Keycode::E),
                     ..
-                } => cpu.set_key(6, true),
+                } => cpu.set_key(0x6, true),
                 Event::KeyDown {
-                    keycode: Some(Keycode::I),
+                    keycode: Some(Keycode::R),
                     ..
-                } => cpu.set_key(7, true),
+                } => cpu.set_key(0xD, true),
 
                 Event::KeyDown {
-                    keycode: Some(Keycode::G),
+                    keycode: Some(Keycode::A),
                     ..
-                } => cpu.set_key(8, true),
+                } => cpu.set_key(0x7, true),
                 Event::KeyDown {
-                    keycode: Some(Keycode::H),
+                    keycode: Some(Keycode::S),
                     ..
-                } => cpu.set_key(9, true),
+                } => cpu.set_key(0x8, true),
                 Event::KeyDown {
-                    keycode: Some(Keycode::J),
+                    keycode: Some(Keycode::D),
                     ..
-                } => cpu.set_key(10, true),
+                } => cpu.set_key(0x9, true),
                 Event::KeyDown {
-                    keycode: Some(Keycode::K),
+                    keycode: Some(Keycode::F),
                     ..
-                } => cpu.set_key(11, true),
+                } => cpu.set_key(0xE, true),
 
+                Event::KeyDown {
+                    keycode: Some(Keycode::Z),
+                    ..
+                } => cpu.set_key(0xA, true),
+                Event::KeyDown {
+                    keycode: Some(Keycode::X),
+                    ..
+                } => cpu.set_key(0x0, true),
+                Event::KeyDown {
+                    keycode: Some(Keycode::C),
+                    ..
+                } => cpu.set_key(0xB, true),
                 Event::KeyDown {
                     keycode: Some(Keycode::V),
                     ..
-                } => cpu.set_key(12, true),
-                Event::KeyDown {
-                    keycode: Some(Keycode::B),
-                    ..
-                } => cpu.set_key(13, true),
-                Event::KeyDown {
-                    keycode: Some(Keycode::N),
-                    ..
-                } => cpu.set_key(14, true),
-                Event::KeyDown {
-                    keycode: Some(Keycode::M),
-                    ..
-                } => cpu.set_key(15, true),
+                } => cpu.set_key(0xF, true),
 
                 Event::KeyUp {
-                    keycode: Some(Keycode::Num5),
-                    ..
-                } => cpu.set_key(0, false),
-                Event::KeyUp {
-                    keycode: Some(Keycode::Num6),
+                    keycode: Some(Keycode::Num1),
                     ..
                 } => cpu.set_key(1, false),
                 Event::KeyUp {
-                    keycode: Some(Keycode::Num7),
+                    keycode: Some(Keycode::Num2),
                     ..
                 } => cpu.set_key(2, false),
                 Event::KeyUp {
-                    keycode: Some(Keycode::Num8),
+                    keycode: Some(Keycode::Num3),
                     ..
                 } => cpu.set_key(3, false),
+                Event::KeyUp {
+                    keycode: Some(Keycode::Num4),
+                    ..
+                } => cpu.set_key(0xC, false),
 
                 Event::KeyUp {
-                    keycode: Some(Keycode::T),
+                    keycode: Some(Keycode::Q),
                     ..
-                } => cpu.set_key(4, false),
+                } => cpu.set_key(0x4, false),
                 Event::KeyUp {
-                    keycode: Some(Keycode::Y),
+                    keycode: Some(Keycode::W),
                     ..
-                } => cpu.set_key(5, false),
+                } => cpu.set_key(0x5, false),
                 Event::KeyUp {
-                    keycode: Some(Keycode::U),
+                    keycode: Some(Keycode::E),
                     ..
-                } => cpu.set_key(6, false),
+                } => cpu.set_key(0x6, false),
                 Event::KeyUp {
-                    keycode: Some(Keycode::I),
+                    keycode: Some(Keycode::R),
                     ..
-                } => cpu.set_key(7, false),
+                } => cpu.set_key(0xD, false),
 
                 Event::KeyUp {
-                    keycode: Some(Keycode::G),
+                    keycode: Some(Keycode::A),
                     ..
-                } => cpu.set_key(8, false),
+                } => cpu.set_key(0x7, false),
                 Event::KeyUp {
-                    keycode: Some(Keycode::H),
+                    keycode: Some(Keycode::S),
                     ..
-                } => cpu.set_key(9, false),
+                } => cpu.set_key(0x8, false),
                 Event::KeyUp {
-                    keycode: Some(Keycode::J),
+                    keycode: Some(Keycode::D),
                     ..
-                } => cpu.set_key(10, false),
+                } => cpu.set_key(0x9, false),
                 Event::KeyUp {
-                    keycode: Some(Keycode::K),
+                    keycode: Some(Keycode::F),
                     ..
-                } => cpu.set_key(11, false),
+                } => cpu.set_key(0xE, false),
 
+                Event::KeyUp {
+                    keycode: Some(Keycode::Z),
+                    ..
+                } => cpu.set_key(0xA, false),
+                Event::KeyUp {
+                    keycode: Some(Keycode::X),
+                    ..
+                } => cpu.set_key(0x0, false),
+                Event::KeyUp {
+                    keycode: Some(Keycode::C),
+                    ..
+                } => cpu.set_key(0xB, false),
                 Event::KeyUp {
                     keycode: Some(Keycode::V),
                     ..
-                } => cpu.set_key(12, false),
-                Event::KeyUp {
-                    keycode: Some(Keycode::B),
-                    ..
-                } => cpu.set_key(13, false),
-                Event::KeyUp {
-                    keycode: Some(Keycode::N),
-                    ..
-                } => cpu.set_key(14, false),
-                Event::KeyUp {
-                    keycode: Some(Keycode::M),
-                    ..
-                } => cpu.set_key(15, false),
+                } => cpu.set_key(0xF, false),
 
                 _ => {}
             }
         }
 
-        let new_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
-        let mut frame_time = new_time - current_time;
-        if frame_time > FIXED_TIME {
-            frame_time = FIXED_TIME;
-        }
-        current_time = new_time;
-
-        accumulator += frame_time;
-
-        let mut counter = 0.0;
-
-        for _ in 0..cycles_per_frame {
+        for _ in 0..config.cycles_per_second {
             cpu.next();
         }
 
-        while accumulator > delta_time {
-            let t = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64();
-            delta_time = t - current_time;
-
-            accumulator -= delta_time;
-            if counter < 0.16 {
-                counter += delta_time;
-            } else {
-                counter = 0.0;
-                cpu.decrease_timers();
-            }
+        canvas.clear();
+        draw(&mut cpu, &mut canvas, &mut texture, &config);
+        canvas.present();
+        cpu.decrease_timers();
+        if cpu.should_play_sound() && !playing {
+            audio_device.resume();
+            playing = true;
         }
-
-        draw(&mut cpu, &mut canvas, &mut texture);
+        if !cpu.should_play_sound() && playing {
+            audio_device.pause();
+            playing = false;
+        }
     }
 }
 
-fn draw(cpu: &mut Box<Cpu>, canvas: &mut Canvas<Window>, texture: &mut Texture) {
-    canvas.clear();
+fn draw(cpu: &mut Box<Cpu>, canvas: &mut Canvas<Window>, texture: &mut Texture, config: &Config) {
     texture
         .with_lock(None, |buffer, _| {
             let video_buffer = cpu.get_display().get_video_mem();
+            let front_color = &config.color.front;
+            let back_color = &config.color.back;
             for (i, data) in video_buffer.iter().enumerate() {
-                let draw_pixel = if *data == 0 { 0 } else { 255 };
-                buffer[i * 3] = draw_pixel;
-                buffer[i * 3 + 1] = draw_pixel;
-                buffer[i * 3 + 2] = draw_pixel;
+                let draw_pixel = if *data == 0 { false } else { true };
+
+                buffer[i * 3] = if draw_pixel { front_color[0] } else { back_color[0] };
+                buffer[i * 3 + 1] = if draw_pixel { front_color[1] } else { back_color[1] };
+                buffer[i * 3 + 2] = if draw_pixel { front_color[2] } else { back_color[2] };
             }
         })
         .expect("No se pudo copiar");
@@ -279,5 +284,4 @@ fn draw(cpu: &mut Box<Cpu>, canvas: &mut Canvas<Window>, texture: &mut Texture) 
     canvas
         .copy(&texture, None, None)
         .expect("No se pudo copiar al render buffer");
-    canvas.present();
 }
