@@ -42,6 +42,12 @@ impl From<u8> for Pixel {
     }
 }
 
+impl Default for Display {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Display {
     pub fn new() -> Display {
         Display {
@@ -68,8 +74,7 @@ impl Display {
     pub fn draw(&mut self, x: usize, y: usize, sprite: &[u8]) -> bool {
         let height = sprite.len();
         let mut collision = false;
-        for row in 0..height {
-            let pixel = sprite[row];
+        for (row, pixel) in sprite.iter().enumerate().take(height) {
             for col in 0..8 {
                 let bit = pixel & (0b10000000 >> col);
                 if bit != 0 {

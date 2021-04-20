@@ -1,5 +1,6 @@
 extern crate gl;
 
+use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sdl2::pixels::PixelFormatEnum;
@@ -9,14 +10,18 @@ use sdl2::video::Window;
 use chip_8::{cpu, display};
 use chip_8::cpu::Cpu;
 
+const FIXED_TIME: f64 = 1.0 / 10000.0;
+
 fn main() {
     let filename = std::env::args()
-        .skip(1)
-        .next()
+        .nth(1)
         .expect("El primer argumento debe ser el archivo");
+    let cycles_per_frame = std::env::args()
+        .nth(2)
+        .map_or(17, |s| i32::from_str(s.as_str()).unwrap_or(17));
+
     let file = std::fs::File::open(filename).expect("No se puede abrir el archivo");
-    let mut cpu = cpu::Cpu::new(file)
-        .expect("No se pudo leer la memoria del archivo");
+    let mut cpu = cpu::Cpu::new(file).expect("No se pudo leer la memoria del archivo");
 
     // SDL Context creation
     let sdl_context = sdl2::init().expect("Cannot initialize sdl");
@@ -39,7 +44,6 @@ fn main() {
         .build()
         .expect("No se puede obtener un contexto gráfico");
 
-
     let texture_creator = canvas.texture_creator();
     let mut texture = texture_creator
         .create_texture_streaming(
@@ -49,14 +53,15 @@ fn main() {
         )
         .expect("No se puede crear la textura");
 
-    texture.with_lock(None, |buffer, _| {
-        for data in buffer {
-            *data = 0;
-        }
-    }).expect("No se pudo copiar");
+    texture
+        .with_lock(None, |buffer, _| {
+            for data in buffer {
+                *data = 0;
+            }
+        })
+        .expect("No se pudo copiar");
 
     // let window = canvas.window();
-
 
     let mut current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -65,7 +70,6 @@ fn main() {
 
     let mut accumulator = 0.0;
     let mut delta_time = 0.01;
-    let mut time = 0.0;
 
     'running: loop {
         use sdl2::event::Event;
@@ -73,11 +77,7 @@ fn main() {
 
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => {
+                Event::Quit { .. } => {
                     break 'running;
                 }
                 // 5 6 7 8
@@ -224,23 +224,39 @@ fn main() {
             }
         }
 
-        let new_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
+        let new_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
         let mut frame_time = new_time - current_time;
-        if frame_time > 0.16 {
-            frame_time = 0.16;
+        if frame_time > FIXED_TIME {
+            frame_time = FIXED_TIME;
         }
         current_time = new_time;
 
         accumulator += frame_time;
 
-        while accumulator > delta_time {
-            time += delta_time;
+        let mut counter = 0.0;
 
+        for _ in 0..cycles_per_frame {
             cpu.next();
+        }
+
+        while accumulator > delta_time {
+            let t = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64();
+            delta_time = t - current_time;
 
             accumulator -= delta_time;
+            if counter < 0.16 {
+                counter += delta_time;
+            } else {
+                counter = 0.0;
+                cpu.decrease_timers();
+            }
         }
-        cpu.decrease_timers();
 
         draw(&mut cpu, &mut canvas, &mut texture);
     }
@@ -248,16 +264,20 @@ fn main() {
 
 fn draw(cpu: &mut Box<Cpu>, canvas: &mut Canvas<Window>, texture: &mut Texture) {
     canvas.clear();
-    texture.with_lock(None, |buffer, _| {
-        let video_buffer = cpu.get_display().get_video_mem();
-        for (i, data) in video_buffer.iter().enumerate() {
-            let draw_pixel = if *data == 0 { 0 } else { 255 };
-            buffer[i * 3] = draw_pixel;
-            buffer[i * 3 + 1] = draw_pixel;
-            buffer[i * 3 + 2] = draw_pixel;
-        }
-    }).expect("No se pudo copiar");
+    texture
+        .with_lock(None, |buffer, _| {
+            let video_buffer = cpu.get_display().get_video_mem();
+            for (i, data) in video_buffer.iter().enumerate() {
+                let draw_pixel = if *data == 0 { 0 } else { 255 };
+                buffer[i * 3] = draw_pixel;
+                buffer[i * 3 + 1] = draw_pixel;
+                buffer[i * 3 + 2] = draw_pixel;
+            }
+        })
+        .expect("No se pudo copiar");
 
-    canvas.copy(&texture, None, None).expect("No se pudo copiar al render buffer");
+    canvas
+        .copy(&texture, None, None)
+        .expect("No se pudo copiar al render buffer");
     canvas.present();
 }

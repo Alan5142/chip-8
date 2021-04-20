@@ -2,7 +2,7 @@ use std::io::Read;
 
 use rand::Rng;
 
-use crate::display::{DEFAULT_FONTS, Display};
+use crate::display::{Display, DEFAULT_FONTS};
 use crate::keypad::KeyPad;
 
 pub struct Cpu {
@@ -119,7 +119,9 @@ impl Cpu {
             // Store NNN in register I
             (0xB, _, _, _) => self.program_counter = (opcode & 0x0FFF) + self.v[0] as u16,
             // Set Vx to random number with mask nn
-            (0xC, _, _, _) => { self.v[x as usize] = rand::thread_rng().gen_range(0x0..0xFF) & nn; }
+            (0xC, _, _, _) => {
+                self.v[x as usize] = rand::thread_rng().gen_range(0x0..0xFF) & nn;
+            }
             (0xD, _, _, _) => {
                 let n = opcode & 0x000F;
                 let sprite_collision = self.display.draw(
@@ -132,11 +134,11 @@ impl Cpu {
             }
             // Skip if key Vx is pressed
             (0xE, _, 0x9, 0xE) => {
-                self.program_counter += if self.keypad[x] == true { 2 } else { 0 }
+                self.program_counter += if self.keypad[x] { 2 } else { 0 }
             }
             // Skip if key Vx is not pressed
             (0xE, _, 0xA, 0x1) => {
-                self.program_counter += if self.keypad[x] == true { 0 } else { 2 }
+                self.program_counter += if self.keypad[x] { 0 } else { 2 }
             }
             // Set Vx value to delay timer
             (0xF, _, 0x0, 0x6) => self.v[x as usize] = self.delay_timer,
@@ -193,13 +195,13 @@ impl Cpu {
             delay_timer: 0,
             sound_timer: 0,
             keypad: KeyPad::new(),
-            display: Display::new()
+            display: Display::new(),
         });
-        for i in 0..80 {
-            cpu.memory[i] = DEFAULT_FONTS[i];
+        for (i, item) in DEFAULT_FONTS.iter().enumerate() {
+            cpu.memory[i] = *item;
         }
 
-        file.read(&mut cpu.memory[(START_ADDRESS as usize)..])?;
+        let _ = file.read(&mut cpu.memory[(START_ADDRESS as usize)..])?;
 
         Ok(cpu)
     }
@@ -292,7 +294,11 @@ mod tests {
         // return
         cpu.next();
 
-        assert_eq!(cpu.program_counter, START_ADDRESS + 0x02, "the program counter is updated to the new address");
+        assert_eq!(
+            cpu.program_counter,
+            START_ADDRESS + 0x02,
+            "the program counter is updated to the new address"
+        );
         assert_eq!(cpu.stack_pointer, 0, "the stack pointer is decremented");
         Ok(())
     }
@@ -388,7 +394,10 @@ mod tests {
         cpu.next();
 
         assert_eq!(cpu.i, 0x0FAF, "the 'i' register is updated");
-        assert_eq!(cpu.program_counter, 0x202, "the program counter is advanced two bytes");
+        assert_eq!(
+            cpu.program_counter, 0x202,
+            "the program counter is advanced two bytes"
+        );
     }
 
     #[test]
@@ -399,14 +408,23 @@ mod tests {
 
         cpu.next();
         assert_eq!(cpu.v[1], 0xAA, "V1 is set");
-        assert_eq!(cpu.program_counter, 0x202, "the program counter is advanced two bytes");
+        assert_eq!(
+            cpu.program_counter, 0x202,
+            "the program counter is advanced two bytes"
+        );
 
         cpu.next();
         assert_eq!(cpu.v[2], 0x1A, "V2 is set");
-        assert_eq!(cpu.program_counter, 0x204, "the program counter is advanced two bytes");
+        assert_eq!(
+            cpu.program_counter, 0x204,
+            "the program counter is advanced two bytes"
+        );
 
         cpu.next();
         assert_eq!(cpu.v[10], 0x15, "V10 is set");
-        assert_eq!(cpu.program_counter, 0x206, "the program counter is advanced two bytes");
+        assert_eq!(
+            cpu.program_counter, 0x206,
+            "the program counter is advanced two bytes"
+        );
     }
 }
