@@ -72,33 +72,8 @@ impl Display {
     }
 
     pub fn draw(&mut self, x: usize, y: usize, sprite: &[u8]) -> bool {
-        /*
-        let height = sprite.len();
         let mut collision = false;
-        for (row, pixel) in sprite.iter().enumerate().take(height) {
-            for col in 0..8 {
-                let bit = pixel & (0b10000000 >> col);
-                if bit != 0 {
-                    if x + col > WIDTH {
-                        continue;
-                    }
-
-                    let previous_pixel = self.get_pixel(x + col, y + row);
-
-                    if previous_pixel == Pixel::On {
-                        collision = true;
-                    }
-                    self.set_pixel(x + col, y + row, Pixel::from(previous_pixel as u8 ^ 1));
-                }
-            }
-        }
-        */
-
-
-        let rows = sprite.len();
-        let mut collision = false;
-        for j in 0..rows {
-            let row = sprite[j];
+        for (j, row) in sprite.iter().enumerate() {
             for i in 0..8 {
                 let new_value = row >> (7 - i) & 0x01;
                 if new_value == 1 {

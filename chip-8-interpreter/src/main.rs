@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 extern crate gl;
 
 use std::io::Read;
@@ -28,7 +30,7 @@ struct Config {
 fn main() {
     let config = std::env::args()
         .nth(1)
-        .unwrap_or("config.toml".into());
+        .unwrap_or_else(|| "config.toml".into());
 
 
     let mut interpreter_config = String::new();
@@ -254,11 +256,11 @@ fn main() {
         draw(&mut cpu, &mut canvas, &mut texture, &config);
         canvas.present();
         cpu.decrease_timers();
-        if cpu.should_play_sound() && !playing {
+        if cpu.as_ref().should_play_sound() && !playing {
             audio_device.resume();
             playing = true;
         }
-        if !cpu.should_play_sound() && playing {
+        if !cpu.as_ref().should_play_sound() && playing {
             audio_device.pause();
             playing = false;
         }
@@ -272,7 +274,7 @@ fn draw(cpu: &mut Box<Cpu>, canvas: &mut Canvas<Window>, texture: &mut Texture, 
             let front_color = &config.color.front;
             let back_color = &config.color.back;
             for (i, data) in video_buffer.iter().enumerate() {
-                let draw_pixel = if *data == 0 { false } else { true };
+                let draw_pixel = *data != 0;
 
                 buffer[i * 3] = if draw_pixel { front_color[0] } else { back_color[0] };
                 buffer[i * 3 + 1] = if draw_pixel { front_color[1] } else { back_color[1] };

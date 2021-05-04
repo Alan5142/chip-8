@@ -29,7 +29,6 @@ pub fn initialize(context: &sdl2::Sdl) -> Result<sdl2::audio::AudioDevice<Square
 
     audio_subsystem.open_playback(None, &desired_spec, |spec| {
         // Show obtained AudioSpec
-        println!("{:?}", spec);
 
         // initialize the audio callback
         SquareWave {
