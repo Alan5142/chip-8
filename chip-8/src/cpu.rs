@@ -148,7 +148,7 @@ impl Cpu {
             // Wait for keypress
             (0xF, _, 0x0, 0xA) => {
                 self.program_counter -= 2;
-                if let Some(pressed) = self.keypad.wait_for_key() {
+                if let Some(pressed) = self.keypad.any_key_pressed() {
                     self.program_counter += 2;
                     self.v[x as usize] = pressed;
                 }
@@ -209,8 +209,6 @@ impl Cpu {
         Ok(cpu)
     }
 
-    pub fn get_next_instruction(&mut self) {}
-
     pub fn next(&mut self) {
         let instruction = (self.memory[self.program_counter as usize] as u16) << 8
             | (self.memory[(self.program_counter + 1) as usize] as u16);
@@ -219,7 +217,7 @@ impl Cpu {
     }
 
     pub fn set_key(&mut self, key_index: u8, status: bool) {
-        self.keypad.on_key_pressed(key_index, status);
+        self.keypad.on_key(key_index, status);
     }
 
     pub fn decrease_timers(&mut self) {

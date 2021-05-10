@@ -1,5 +1,3 @@
-use std::ops::{Index, IndexMut};
-
 /// KeyPad
 /// |
 pub struct KeyPad {
@@ -13,7 +11,7 @@ impl KeyPad {
         }
     }
 
-    pub fn wait_for_key(&self) -> Option<u8> {
+    pub fn any_key_pressed(&self) -> Option<u8> {
         let mut pressed_key = None;
         for (i, key) in self.keypad.iter().enumerate() {
             if *key {
@@ -23,7 +21,7 @@ impl KeyPad {
         pressed_key
     }
 
-    pub fn on_key_pressed(&mut self, key: u8, status: bool) {
+    pub fn on_key(&mut self, key: u8, status: bool) {
         self.keypad[key as usize] = status;
     }
 
@@ -32,16 +30,25 @@ impl KeyPad {
     }
 }
 
-impl Index<u8> for KeyPad {
-    type Output = bool;
+#[cfg(test)]
+mod tests {
+    use crate::keypad::KeyPad;
 
-    fn index(&self, index: u8) -> &Self::Output {
-        &self.keypad[index as usize]
+    #[test]
+    fn press_key() {
+        let mut keypad = KeyPad::new();
+        assert_eq!(keypad.is_key_down(0), false);
+        keypad.on_key(0, true);
+        assert_eq!(keypad.is_key_down(0), true);
     }
-}
 
-impl IndexMut<u8> for KeyPad {
-    fn index_mut(&mut self, index: u8) -> &mut Self::Output {
-        &mut self.keypad[index as usize]
+    #[test]
+    fn wait_for_key() {
+        let mut keypad = KeyPad::new();
+        for _ in 0..3 {
+            keypad.any_key_pressed();
+        }
+        keypad.on_key(5, true);
+        assert_eq!(keypad.any_key_pressed().unwrap(), 5);
     }
 }

@@ -24,7 +24,7 @@ struct ColorConfig {
 struct Config {
     color: ColorConfig,
     executable: String,
-    cycles_per_second: i32,
+    cycles_per_frame: i32,
 }
 
 fn main() {
@@ -248,7 +248,7 @@ fn main() {
             }
         }
 
-        for _ in 0..config.cycles_per_second {
+        for _ in 0..config.cycles_per_frame {
             cpu.next();
         }
 
